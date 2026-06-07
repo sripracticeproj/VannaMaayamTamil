@@ -1,9 +1,10 @@
 package com.vannamaayam.tamil.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.vannamaayam.tamil.audio.VoicePlayerManager
+import com.vannamaayam.tamil.audio.DynamicVoiceComposer
 import com.vannamaayam.tamil.models.GameState
 import com.vannamaayam.tamil.models.ThuliAgentResponse
 import com.vannamaayam.tamil.models.ThuliStatus
@@ -16,23 +17,24 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 data class AnimalColorRound(
-    val animal: String,           // E.g., "singam" (Lion), "yaanai" (Elephant)
-    val targetColorTamil: String, // E.g., "மஞ்சள்" (Yellow), "பச்சை" (Green)
-    val colorHex: Long,           // Target color to apply in Compose UI
-    val transliterations: List<String> // Transliterated/alternative names for matches
+    val animal: String,           
+    val modelPath: String,        // 3D model asset path (.glb)
+    val meshName: String,         // Specific mesh to tint
+    val targetColorTamil: String, 
+    val colorHex: Long,           
+    val transliterations: List<String>
 )
 
 class VannaMaayamViewModel(application: Application) : AndroidViewModel(application) {
 
     private val speechManager = TamilSpeechManager(application)
-    private val voicePlayerManager = VoicePlayerManager(application)
+    private val voiceComposer = DynamicVoiceComposer(application)
 
-    // Game round dataset
     private val rounds = listOf(
-        AnimalColorRound("singam", "மஞ்சள்", 0xFFFFF099, listOf("மஞ்சள்", "manjal", "yellow", "manchal")),
-        AnimalColorRound("thavalai", "பச்சை", 0xFFB5F2D2, listOf("பச்சை", "pachai", "green", "pachcha")),
-        AnimalColorRound("paravai", "நீலம்", 0xFFAFE4FF, listOf("நீலம்", "neelam", "blue")),
-        AnimalColorRound("muyal", "சிவப்பு", 0xFFFF9E80, listOf("சிவப்பு", "sivappu", "red", "civappu"))
+        AnimalColorRound("singam", "models/lion.glb", "lion_body", "மஞ்சள்", 0xFFFFF099, listOf("மஞ்சள்", "manjal", "yellow")),
+        AnimalColorRound("thavalai", "models/frog.glb", "frog_skin", "பச்சை", 0xFFB5F2D2, listOf("பச்சை", "pachai", "green")),
+        AnimalColorRound("paravai", "models/bird.glb", "bird_feathers", "நீலம்", 0xFFAFE4FF, listOf("நீலம்", "neelam", "blue")),
+        AnimalColorRound("muyal", "models/rabbit.glb", "rabbit_fur", "சிவப்பு", 0xFFFF9E80, listOf("சிவப்பு", "sivappu", "red"))
     )
 
     private var currentRoundIndex = 0
@@ -40,6 +42,12 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
     // Live UI States
     private val _currentAnimal = MutableStateFlow("")
     val currentAnimal: StateFlow<String> = _currentAnimal.asStateFlow()
+
+    private val _currentModelPath = MutableStateFlow("")
+    val currentModelPath: StateFlow<String> = _currentModelPath.asStateFlow()
+
+    private val _targetMeshName = MutableStateFlow<String?>(null)
+    val targetMeshName: StateFlow<String?> = _targetMeshName.asStateFlow()
 
     private val _targetColorTamil = MutableStateFlow("")
     val targetColorTamil: StateFlow<String> = _targetColorTamil.asStateFlow()
@@ -50,14 +58,20 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
     private val _isListening = MutableStateFlow(false)
     val isListening: StateFlow<Boolean> = _isListening.asStateFlow()
 
+    private val _transcript = MutableStateFlow("")
+    val transcript: StateFlow<String> = _transcript.asStateFlow()
+
     private val _audioRms = MutableStateFlow(0f)
     val audioRms: StateFlow<Float> = _audioRms.asStateFlow()
 
-    private val _thuliAnimationState = MutableStateFlow("idle") // "idle", "talking", "thinking", "celebrate"
+    private val _thuliAnimationState = MutableStateFlow("idle")
     val thuliAnimationState: StateFlow<String> = _thuliAnimationState.asStateFlow()
 
     private val _gameFinished = MutableStateFlow(false)
     val gameFinished: StateFlow<Boolean> = _gameFinished.asStateFlow()
+
+    private val _debugLogs = MutableStateFlow<List<String>>(emptyList())
+    val debugLogs: StateFlow<List<String>> = _debugLogs.asStateFlow()
 
     init {
         loadRound()
@@ -65,11 +79,14 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun loadRound() {
+        addLog("Loading round: $currentRoundIndex")
         if (currentRoundIndex < rounds.size) {
             val round = rounds[currentRoundIndex]
             _currentAnimal.value = round.animal
+            _currentModelPath.value = round.modelPath
             _targetColorTamil.value = round.targetColorTamil
             _guessedColorHex.value = null
+            _targetMeshName.value = null
             _thuliAnimationState.value = "idle"
         } else {
             _gameFinished.value = true
@@ -79,70 +96,53 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun playWelcomeMessage() {
         _thuliAnimationState.value = "talking"
-        voicePlayerManager.playVoiceClip("intro") {
+        // Use DynamicVoiceComposer for mixed playback
+        voiceComposer.playDynamicInstruction("intro", _targetColorTamil.value, "hint") {
             _thuliAnimationState.value = "idle"
         }
     }
 
     fun startListening() {
         if (_isListening.value) return
-
+        _transcript.value = ""
         _thuliAnimationState.value = "thinking"
         speechManager.startListening(
-            onResult = { transcript ->
-                processSpeechResult(transcript)
-            },
-            onPartialResult = { partial ->
-                // Visual feedback of speech transcripts
-            },
-            onRmsChanged = { rms ->
-                _audioRms.value = rms
-            },
-            onListeningStateChanged = { listening ->
-                _isListening.value = listening
-                if (!listening && _thuliAnimationState.value == "thinking") {
-                    _thuliAnimationState.value = "idle"
-                }
-            },
-            onError = { errorCode ->
-                _isListening.value = false
-                _thuliAnimationState.value = "idle"
-            }
+            onResult = { processSpeechResult(it) },
+            onPartialResult = { _transcript.value = it },
+            onRmsChanged = { _audioRms.value = it },
+            onListeningStateChanged = { _isListening.value = it },
+            onError = { _isListening.value = false; _thuliAnimationState.value = "idle" }
         )
     }
 
-    fun stopListening() {
-        speechManager.stopListening()
-    }
+    fun stopListening() = speechManager.stopListening()
 
     private fun processSpeechResult(transcript: String) {
+        _transcript.value = transcript
         val cleanTranscript = transcript.trim().lowercase(Locale.ROOT)
         val currentRound = rounds[currentRoundIndex]
 
-        // Map game state to schema
         val state = GameState(
-            current_animal = currentRound.animal,
+            current_3d_model = currentRound.modelPath,
             target_color_tamil = currentRound.targetColorTamil,
             child_audio_transcript = transcript
         )
 
-        // Check if guess matches target or transliterations
-        val isCorrect = currentRound.transliterations.any { translit ->
-            cleanTranscript.contains(translit.lowercase(Locale.ROOT))
-        }
+        val isCorrect = currentRound.transliterations.any { cleanTranscript.contains(it) }
 
         val agentResponse = if (isCorrect) {
             ThuliAgentResponse(
                 status = ThuliStatus.SUCCESS,
+                target_mesh_part = currentRound.meshName,
+                hex_color_code = String.format("#%06X", (0xFFFFFF and currentRound.colorHex.toInt())),
+                dynamic_speech_payload = currentRound.targetColorTamil,
                 animation_state = "celebrate",
-                visual_cue_asset = currentRound.animal,
                 voice_clip_id = "success"
             )
         } else {
             ThuliAgentResponse(
                 status = ThuliStatus.HINT,
                 animation_state = "talking",
-                visual_cue_asset = currentRound.animal,
                 voice_clip_id = "hint"
             )
         }
@@ -155,16 +155,18 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
 
         if (response.status == ThuliStatus.SUCCESS) {
             _guessedColorHex.value = round.colorHex
-            voicePlayerManager.playVoiceClip(response.voice_clip_id) {
+            _targetMeshName.value = response.target_mesh_part
+            
+            // Dynamic Audio: Play success clip and reinforce the color name
+            voiceComposer.playDynamicInstruction(response.voice_clip_id, response.dynamic_speech_payload ?: "") {
                 viewModelScope.launch {
-                    delay(1500) // Show celebration details briefly
+                    delay(2000)
                     currentRoundIndex++
                     loadRound()
                 }
             }
         } else {
-            // Give visual-audio hint
-            voicePlayerManager.playVoiceClip(response.voice_clip_id) {
+            voiceComposer.playDynamicInstruction("hint", round.targetColorTamil) {
                 _thuliAnimationState.value = "idle"
             }
         }
@@ -177,9 +179,14 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
         playWelcomeMessage()
     }
 
+    private fun addLog(message: String) {
+        Log.d("VannaMaayam", message)
+        _debugLogs.value = (_debugLogs.value + message).takeLast(5)
+    }
+
     override fun onCleared() {
         super.onCleared()
         speechManager.destroy()
-        voicePlayerManager.destroy()
+        voiceComposer.destroy()
     }
 }

@@ -28,17 +28,23 @@ class VoicePlayerManager(private val context: Context) {
 
             if (resId != 0) {
                 // Initialize media player
-                mediaPlayer = MediaPlayer.create(context, resId).apply {
-                    setOnCompletionListener {
-                        onComplete()
-                        releasePlayer()
+                val player = MediaPlayer.create(context, resId)
+                if (player != null) {
+                    mediaPlayer = player.apply {
+                        setOnCompletionListener {
+                            onComplete()
+                            releasePlayer()
+                        }
+                        setOnErrorListener { mp, what, extra ->
+                            Log.e("VoicePlayerManager", "Error playing audio: what=$what, extra=$extra")
+                            releasePlayer()
+                            true
+                        }
+                        start()
                     }
-                    setOnErrorListener { mp, what, extra ->
-                        Log.e("VoicePlayerManager", "Error playing audio: what=$what, extra=$extra")
-                        releasePlayer()
-                        true
-                    }
-                    start()
+                } else {
+                    Log.e("VoicePlayerManager", "MediaPlayer.create returned null for resId: $resId")
+                    onComplete()
                 }
             } else {
                 Log.e("VoicePlayerManager", "Audio resource not found: $voiceClipId")

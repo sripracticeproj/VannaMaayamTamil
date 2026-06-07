@@ -1,10 +1,10 @@
 package com.vannamaayam.tamil.models
 
 /**
- * Represents the current game/interaction state, sent as input to the AI logic.
+ * Revised GameState for 3D Architecture.
  */
 data class GameState(
-    val current_animal: String,
+    val current_3d_model: String,
     val target_color_tamil: String,
     val child_audio_transcript: String
 )

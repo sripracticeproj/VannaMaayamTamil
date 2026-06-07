@@ -31,7 +31,6 @@ class TamilSpeechManager(private val context: Context) {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ta-IN")
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ta-IN")
-                putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_IN_SIDEBAND, "ta-IN")
                 // Resilience settings for toddler/child speech patterns:
                 // Request partial results for instant responsive feedback,
                 // and configure longer silence limits where supported.
@@ -68,6 +67,11 @@ class TamilSpeechManager(private val context: Context) {
 
         if (speechRecognizer == null) {
             initializeRecognizer()
+        }
+
+        if (speechRecognizer == null) {
+            onError(SpeechRecognizer.ERROR_CLIENT)
+            return
         }
 
         speechRecognizer?.setRecognitionListener(object : RecognitionListener {

@@ -13,10 +13,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,7 +27,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vannamaayam.tamil.ui.theme.*
 import com.vannamaayam.tamil.viewmodel.VannaMaayamViewModel
@@ -43,10 +42,14 @@ fun VannaMaayamDashboard(
     viewModel: VannaMaayamViewModel = viewModel()
 ) {
     val currentAnimal by viewModel.currentAnimal.collectAsState()
+    val currentModelPath by viewModel.currentModelPath.collectAsState()
+    val targetMeshName by viewModel.targetMeshName.collectAsState()
     val targetColorTamil by viewModel.targetColorTamil.collectAsState()
     val guessedColorHex by viewModel.guessedColorHex.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
     val audioRms by viewModel.audioRms.collectAsState()
+    val transcript by viewModel.transcript.collectAsState()
+    val debugLogs by viewModel.debugLogs.collectAsState()
     val thuliAnimationState by viewModel.thuliAnimationState.collectAsState()
     val gameFinished by viewModel.gameFinished.collectAsState()
 
@@ -77,6 +80,18 @@ fun VannaMaayamDashboard(
                 // Top header / round indicators (visual progress tracker)
                 TopProgressHeader(currentRound = if (currentAnimal == "singam") 0 else if (currentAnimal == "thavalai") 1 else if (currentAnimal == "paravai") 2 else 3)
 
+                // Debug Logs Overlay
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                        .background(Color.Black.copy(alpha = 0.3f))
+                ) {
+                    debugLogs.forEach { log ->
+                        Text(text = log, color = Color.Yellow, fontSize = 12.sp)
+                    }
+                }
+
                 // Main Character Canvas: Thuli and the Target Animal side-by-side or stacked
                 Row(
                     modifier = Modifier
@@ -96,25 +111,39 @@ fun VannaMaayamDashboard(
 
                     Spacer(modifier = Modifier.width(16.dp))
 
-                    // Right Side: Current Animal needing colors
-                    AnimalCanvasView(
-                        animalName = currentAnimal,
-                        colorHex = guessedColorHex,
+                    // Right Side: Current 3D Animal Rendering Viewport
+                    Animal3DViewport(
+                        modelAssetPath = currentModelPath,
+                        tintColor = guessedColorHex?.let { Color(it) },
+                        targetMeshName = targetMeshName,
                         modifier = Modifier
                             .weight(1f)
-                            .height(260.dp)
+                            .height(300.dp)
+                            .clip(RoundedCornerShape(32.dp))
+                            .background(Color.White.copy(alpha = 0.1f))
                     )
                 }
 
                 // Bottom Mic Trigger and permission warnings
-                BottomControlArea(
-                    hasRecordPermission = hasRecordPermission,
-                    isListening = isListening,
-                    audioRms = audioRms,
-                    onRequestPermission = onRequestPermission,
-                    onStartMic = { viewModel.startListening() },
-                    onStopMic = { viewModel.stopListening() }
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (transcript.isNotEmpty()) {
+                        Text(
+                            text = transcript,
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    BottomControlArea(
+                        hasRecordPermission = hasRecordPermission,
+                        isListening = isListening,
+                        audioRms = audioRms,
+                        onRequestPermission = onRequestPermission,
+                        onStartMic = { viewModel.startListening() },
+                        onStopMic = { viewModel.stopListening() }
+                    )
+                }
             }
         }
     }
@@ -209,8 +238,8 @@ fun ThuliCharacterView(state: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .graphicsLayer {
-                translationY = bounceY
-                scaleX = scaleX
+                this.translationY = bounceY
+                this.scaleX = scaleX
             },
         contentAlignment = Alignment.Center
     ) {
@@ -309,172 +338,6 @@ fun ThuliCharacterView(state: String, modifier: Modifier = Modifier) {
                 radius = 10f,
                 center = Offset(centerX + eyeSpacing + 18f, centerY + 10f)
             )
-        }
-    }
-}
-
-@Composable
-fun AnimalCanvasView(animalName: String, colorHex: Long?, modifier: Modifier = Modifier) {
-    val animalColor = colorHex?.let { Color(it) } ?: Color.White.copy(alpha = 0.4f)
-    val outlineColor = Color(0xFF4A4A4A)
-
-    Card(
-        modifier = modifier
-            .fillMaxHeight()
-            .shadow(12.dp, RoundedCornerShape(32.dp)),
-        shape = RoundedCornerShape(32.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.25f))
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                val width = size.width
-                val height = size.height
-                val cx = width / 2f
-                val cy = height / 2f
-
-                when (animalName) {
-                    "singam" -> {
-                        // 1. Draw Mane (back shape)
-                        for (angle in 0 until 360 step 30) {
-                            val rad = Math.toRadians(angle.toDouble())
-                            val mx = cx + 85f * Math.cos(rad).toFloat()
-                            val my = cy + 85f * Math.sin(rad).toFloat()
-                            drawCircle(
-                                color = if (colorHex != null) animalColor else Color(0xFFFFB74D),
-                                radius = 45f,
-                                center = Offset(mx, my)
-                            )
-                        }
-                        // 2. Draw Main Face Circle
-                        drawCircle(color = animalColor, radius = 80f, center = Offset(cx, cy))
-                        drawCircle(color = outlineColor, radius = 80f, center = Offset(cx, cy), style = Stroke(width = 6f))
-
-                        // Draw Lion ears
-                        drawCircle(color = animalColor, radius = 25f, center = Offset(cx - 60f, cy - 60f))
-                        drawCircle(color = outlineColor, radius = 25f, center = Offset(cx - 60f, cy - 60f), style = Stroke(width = 6f))
-                        drawCircle(color = animalColor, radius = 25f, center = Offset(cx + 60f, cy - 60f))
-                        drawCircle(color = outlineColor, radius = 25f, center = Offset(cx + 60f, cy - 60f), style = Stroke(width = 6f))
-
-                        // Lion Nose
-                        val nosePath = Path().apply {
-                            moveTo(cx - 15f, cy + 10f)
-                            lineTo(cx + 15f, cy + 10f)
-                            lineTo(cx, cy + 25f)
-                            close()
-                        }
-                        drawPath(nosePath, color = outlineColor)
-                    }
-                    "thavalai" -> {
-                        // Frog Body Shape (Blob)
-                        drawRoundRect(
-                            color = animalColor,
-                            topLeft = Offset(cx - 90f, cy - 60f),
-                            size = Size(180f, 130f),
-                            cornerRadius = CornerRadius(60f, 60f)
-                        )
-                        drawRoundRect(
-                            color = outlineColor,
-                            topLeft = Offset(cx - 90f, cy - 60f),
-                            size = Size(180f, 130f),
-                            cornerRadius = CornerRadius(60f, 60f),
-                            style = Stroke(width = 6f)
-                        )
-
-                        // Frog Big Eyes
-                        drawCircle(color = animalColor, radius = 30f, center = Offset(cx - 50f, cy - 65f))
-                        drawCircle(color = outlineColor, radius = 30f, center = Offset(cx - 50f, cy - 65f), style = Stroke(width = 6f))
-                        drawCircle(color = Color.Black, radius = 10f, center = Offset(cx - 50f, cy - 65f))
-
-                        drawCircle(color = animalColor, radius = 30f, center = Offset(cx + 50f, cy - 65f))
-                        drawCircle(color = outlineColor, radius = 30f, center = Offset(cx + 50f, cy - 65f), style = Stroke(width = 6f))
-                        drawCircle(color = Color.Black, radius = 10f, center = Offset(cx + 50f, cy - 65f))
-
-                        // Frog Smile
-                        val smilePath = Path().apply {
-                            moveTo(cx - 40f, cy + 15f)
-                            quadraticBezierTo(cx, cy + 38f, cx + 40f, cy + 15f)
-                        }
-                        drawPath(smilePath, color = outlineColor, style = Stroke(width = 6f))
-                    }
-                    "paravai" -> {
-                        // Bird Body (Rounder Oval)
-                        drawCircle(color = animalColor, radius = 80f, center = Offset(cx, cy))
-                        drawCircle(color = outlineColor, radius = 80f, center = Offset(cx, cy), style = Stroke(width = 6f))
-
-                        // Bird Beak
-                        val beakPath = Path().apply {
-                            moveTo(cx + 70f, cy - 10f)
-                            lineTo(cx + 110f, cy)
-                            lineTo(cx + 70f, cy + 15f)
-                            close()
-                        }
-                        drawPath(beakPath, color = CoralOrange)
-                        drawPath(beakPath, color = outlineColor, style = Stroke(width = 4f))
-
-                        // Bird Wing
-                        val wingPath = Path().apply {
-                            moveTo(cx - 40f, cy)
-                            quadraticBezierTo(cx, cy - 40f, cx + 10f, cy)
-                            quadraticBezierTo(cx - 15f, cy + 35f, cx - 40f, cy)
-                            close()
-                        }
-                        drawPath(wingPath, color = animalColor.copy(alpha = 0.8f))
-                        drawPath(wingPath, color = outlineColor, style = Stroke(width = 5f))
-
-                        // Bird Eye
-                        drawCircle(color = Color.Black, radius = 10f, center = Offset(cx + 30f, cy - 25f))
-                    }
-                    "muyal" -> {
-                        // Rabbit Head
-                        drawCircle(color = animalColor, radius = 75f, center = Offset(cx, cy + 15f))
-                        drawCircle(color = outlineColor, radius = 75f, center = Offset(cx, cy + 15f), style = Stroke(width = 6f))
-
-                        // Long Left Ear
-                        val leftEarPath = Path().apply {
-                            moveTo(cx - 50f, cy - 45f)
-                            cubicTo(
-                                cx - 70f, cy - 160f,
-                                cx - 20f, cy - 160f,
-                                cx - 15f, cy - 45f
-                            )
-                            close()
-                        }
-                        drawPath(leftEarPath, color = animalColor)
-                        drawPath(leftEarPath, color = outlineColor, style = Stroke(width = 6f))
-
-                        // Long Right Ear
-                        val rightEarPath = Path().apply {
-                            moveTo(cx + 15f, cy - 45f)
-                            cubicTo(
-                                cx + 20f, cy - 160f,
-                                cx + 70f, cy - 160f,
-                                cx + 50f, cy - 45f
-                            )
-                            close()
-                        }
-                        drawPath(rightEarPath, color = animalColor)
-                        drawPath(rightEarPath, color = outlineColor, style = Stroke(width = 6f))
-
-                        // Cute Nose/Mouth
-                        drawCircle(color = PlayfulPink, radius = 10f, center = Offset(cx, cy + 15f))
-                        val mouthPath = Path().apply {
-                            moveTo(cx - 15f, cy + 30f)
-                            quadraticBezierTo(cx - 7f, cy + 42f, cx, cy + 30f)
-                            quadraticBezierTo(cx + 7f, cy + 42f, cx + 15f, cy + 30f)
-                        }
-                        drawPath(mouthPath, color = outlineColor, style = Stroke(width = 5f))
-                    }
-                }
-
-                // Eyes for standard animals
-                if (animalName == "singam" || animalName == "muyal") {
-                    drawCircle(color = Color.Black, radius = 9f, center = Offset(cx - 28f, cy - 15f))
-                    drawCircle(color = Color.Black, radius = 9f, center = Offset(cx + 28f, cy - 15f))
-                }
-            }
         }
     }
 }

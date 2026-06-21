@@ -42,8 +42,6 @@ fun VannaMaayamDashboard(
     viewModel: VannaMaayamViewModel = viewModel()
 ) {
     val currentAnimal by viewModel.currentAnimal.collectAsState()
-    val currentModelPath by viewModel.currentModelPath.collectAsState()
-    val targetMeshName by viewModel.targetMeshName.collectAsState()
     val targetColorTamil by viewModel.targetColorTamil.collectAsState()
     val guessedColorHex by viewModel.guessedColorHex.collectAsState()
     val isListening by viewModel.isListening.collectAsState()
@@ -111,29 +109,41 @@ fun VannaMaayamDashboard(
 
                     Spacer(modifier = Modifier.width(16.dp))
 
-                    // Right Side: Current 3D Animal Rendering Viewport
-                    Animal3DViewport(
-                        modelAssetPath = currentModelPath,
-                        tintColor = guessedColorHex?.let { Color(it) },
-                        targetMeshName = targetMeshName,
+                    // Right Side: UNIQUE "Living Canvas" (Vector-based, Reactive)
+                    LivingCanvas(
+                        animalType = currentAnimal,
+                        fillColor = guessedColorHex?.let { Color(it) } ?: Color.Transparent,
+                        isListening = isListening,
+                        audioRms = audioRms,
                         modifier = Modifier
-                            .weight(1f)
-                            .height(300.dp)
-                            .clip(RoundedCornerShape(32.dp))
-                            .background(Color.White.copy(alpha = 0.1f))
+                            .weight(1.2f)
+                            .height(320.dp)
+                            .graphicsLayer {
+                                // Add a floating effect
+                                translationY = sin(System.currentTimeMillis() / 500f) * 10f
+                            }
                     )
                 }
 
-                // Bottom Mic Trigger and permission warnings
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // Bottom Mic Trigger and transcript
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                ) {
                     if (transcript.isNotEmpty()) {
-                        Text(
-                            text = transcript,
-                            color = Color.White,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(24.dp),
+                            color = Color.White.copy(alpha = 0.9f),
+                            modifier = Modifier.padding(bottom = 16.dp).shadow(8.dp, RoundedCornerShape(24.dp))
+                        ) {
+                            Text(
+                                text = transcript,
+                                color = PurplePrimary,
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
+                            )
+                        }
                     }
                     BottomControlArea(
                         hasRecordPermission = hasRecordPermission,

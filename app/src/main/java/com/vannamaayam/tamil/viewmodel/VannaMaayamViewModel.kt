@@ -5,9 +5,6 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vannamaayam.tamil.audio.DynamicVoiceComposer
-import com.vannamaayam.tamil.models.GameState
-import com.vannamaayam.tamil.models.ThuliAgentResponse
-import com.vannamaayam.tamil.models.ThuliStatus
 import com.vannamaayam.tamil.speech.TamilSpeechManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,8 +15,8 @@ import java.util.Locale
 
 data class AnimalColorRound(
     val animal: String,           
-    val modelPath: String,        // 3D model asset path (.glb)
-    val meshName: String,         // Specific mesh to tint
+    val modelPath: String,        
+    val meshName: String,         
     val targetColorTamil: String, 
     val colorHex: Long,           
     val transliterations: List<String>
@@ -31,10 +28,10 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
     private val voiceComposer = DynamicVoiceComposer(application)
 
     private val rounds = listOf(
-        AnimalColorRound("singam", "models/lion.glb", "lion_body", "மஞ்சள்", 0xFFFFF099, listOf("மஞ்சள்", "manjal", "yellow")),
-        AnimalColorRound("thavalai", "models/frog.glb", "frog_skin", "பச்சை", 0xFFB5F2D2, listOf("பச்சை", "pachai", "green")),
-        AnimalColorRound("paravai", "models/bird.glb", "bird_feathers", "நீலம்", 0xFFAFE4FF, listOf("நீலம்", "neelam", "blue")),
-        AnimalColorRound("muyal", "models/rabbit.glb", "rabbit_fur", "சிவப்பு", 0xFFFF9E80, listOf("சிவப்பு", "sivappu", "red"))
+        AnimalColorRound("singam", "", "", "மஞ்சள்", 0xFFFFF099, listOf("மஞ்சள்", "manjal", "yellow")),
+        AnimalColorRound("thavalai", "", "", "பச்சை", 0xFFB5F2D2, listOf("பச்சை", "pachai", "green")),
+        AnimalColorRound("paravai", "", "", "நீலம்", 0xFFAFE4FF, listOf("நீலம்", "neelam", "blue")),
+        AnimalColorRound("muyal", "", "", "சிவப்பு", 0xFFFF9E80, listOf("சிவப்பு", "sivappu", "red"))
     )
 
     private var currentRoundIndex = 0
@@ -42,12 +39,6 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
     // Live UI States
     private val _currentAnimal = MutableStateFlow("")
     val currentAnimal: StateFlow<String> = _currentAnimal.asStateFlow()
-
-    private val _currentModelPath = MutableStateFlow("")
-    val currentModelPath: StateFlow<String> = _currentModelPath.asStateFlow()
-
-    private val _targetMeshName = MutableStateFlow<String?>(null)
-    val targetMeshName: StateFlow<String?> = _targetMeshName.asStateFlow()
 
     private val _targetColorTamil = MutableStateFlow("")
     val targetColorTamil: StateFlow<String> = _targetColorTamil.asStateFlow()
@@ -79,39 +70,46 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun loadRound() {
-        addLog("Loading round: $currentRoundIndex")
         if (currentRoundIndex < rounds.size) {
             val round = rounds[currentRoundIndex]
             _currentAnimal.value = round.animal
-            _currentModelPath.value = round.modelPath
             _targetColorTamil.value = round.targetColorTamil
             _guessedColorHex.value = null
-            _targetMeshName.value = null
             _thuliAnimationState.value = "idle"
+            _transcript.value = "இந்த விலங்கிற்கு '${round.targetColorTamil}' வண்ணம் பூசுவோமா?"
         } else {
             _gameFinished.value = true
             _thuliAnimationState.value = "celebrate"
+            _transcript.value = "அற்புதம்! நீ ஒரு சிறந்த ஓவியர்!"
         }
     }
 
     private fun playWelcomeMessage() {
         _thuliAnimationState.value = "talking"
-        // Use DynamicVoiceComposer for mixed playback
-        voiceComposer.playDynamicInstruction("intro", _targetColorTamil.value, "hint") {
+        val colorName = if (currentRoundIndex < rounds.size) rounds[currentRoundIndex].targetColorTamil else ""
+        
+        // As requested: Only use intro.mp3 for the agent voice
+        // We play intro.mp3, and then use TTS for the dynamic color name if needed.
+        // For simplicity and kid-friendliness, we play the intro carrier clip.
+        voiceComposer.playDynamicInstruction("intro", colorName, null) {
             _thuliAnimationState.value = "idle"
         }
     }
 
     fun startListening() {
         if (_isListening.value) return
-        _transcript.value = ""
+        _transcript.value = "உன் மந்திரக் குரலைச் சொல்..."
         _thuliAnimationState.value = "thinking"
         speechManager.startListening(
             onResult = { processSpeechResult(it) },
             onPartialResult = { _transcript.value = it },
             onRmsChanged = { _audioRms.value = it },
             onListeningStateChanged = { _isListening.value = it },
-            onError = { _isListening.value = false; _thuliAnimationState.value = "idle" }
+            onError = { 
+                _isListening.value = false
+                _thuliAnimationState.value = "idle"
+                _transcript.value = "மீண்டும் ஒருமுறை சொல் தங்கம்!"
+            }
         )
     }
 
@@ -122,53 +120,38 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
         val cleanTranscript = transcript.trim().lowercase(Locale.ROOT)
         val currentRound = rounds[currentRoundIndex]
 
-        val state = GameState(
-            current_3d_model = currentRound.modelPath,
-            target_color_tamil = currentRound.targetColorTamil,
-            child_audio_transcript = transcript
-        )
-
-        val isCorrect = currentRound.transliterations.any { cleanTranscript.contains(it) }
-
-        val agentResponse = if (isCorrect) {
-            ThuliAgentResponse(
-                status = ThuliStatus.SUCCESS,
-                target_mesh_part = currentRound.meshName,
-                hex_color_code = String.format("#%06X", (0xFFFFFF and currentRound.colorHex.toInt())),
-                dynamic_speech_payload = currentRound.targetColorTamil,
-                animation_state = "celebrate",
-                voice_clip_id = "success"
-            )
-        } else {
-            ThuliAgentResponse(
-                status = ThuliStatus.HINT,
-                animation_state = "talking",
-                voice_clip_id = "hint"
-            )
+        val isCorrect = currentRound.transliterations.any { keyword ->
+            cleanTranscript.contains(keyword.lowercase(Locale.ROOT))
         }
 
-        applyAgentResponse(agentResponse, currentRound)
+        if (isCorrect) {
+            handleSuccess(currentRound)
+        } else {
+            handleHint(currentRound)
+        }
     }
 
-    private fun applyAgentResponse(response: ThuliAgentResponse, round: AnimalColorRound) {
-        _thuliAnimationState.value = response.animation_state
+    private fun handleSuccess(round: AnimalColorRound) {
+        _thuliAnimationState.value = "celebrate"
+        _guessedColorHex.value = round.colorHex
+        _transcript.value = "மிகச்சரியாக சொன்னாய்! ${round.targetColorTamil} வண்ணம் பூசியாகிவிட்டது!"
 
-        if (response.status == ThuliStatus.SUCCESS) {
-            _guessedColorHex.value = round.colorHex
-            _targetMeshName.value = response.target_mesh_part
-            
-            // Dynamic Audio: Play success clip and reinforce the color name
-            voiceComposer.playDynamicInstruction(response.voice_clip_id, response.dynamic_speech_payload ?: "") {
-                viewModelScope.launch {
-                    delay(2000)
-                    currentRoundIndex++
-                    loadRound()
-                }
-            }
-        } else {
-            voiceComposer.playDynamicInstruction("hint", round.targetColorTamil) {
-                _thuliAnimationState.value = "idle"
-            }
+        // Use TTS for success feedback to keep the voice consistent without success.mp3
+        viewModelScope.launch {
+            delay(3000)
+            currentRoundIndex++
+            loadRound()
+            playWelcomeMessage()
+        }
+    }
+
+    private fun handleHint(round: AnimalColorRound) {
+        _thuliAnimationState.value = "talking"
+        _transcript.value = "தவறு தங்கம்! '${round.targetColorTamil}' என்று சொல் பார்க்கலாம்!"
+        // Guide back to idle
+        viewModelScope.launch {
+            delay(2000)
+            _thuliAnimationState.value = "idle"
         }
     }
 
@@ -181,7 +164,7 @@ class VannaMaayamViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun addLog(message: String) {
         Log.d("VannaMaayam", message)
-        _debugLogs.value = (_debugLogs.value + message).takeLast(5)
+        _debugLogs.value = (_debugLogs.value + message).takeLast(3)
     }
 
     override fun onCleared() {

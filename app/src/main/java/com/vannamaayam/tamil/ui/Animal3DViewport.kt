@@ -2,6 +2,7 @@ package com.vannamaayam.tamil.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -11,6 +12,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.sceneview.SceneView
 import io.github.sceneview.math.Position
 import io.github.sceneview.math.Rotation
@@ -64,25 +67,18 @@ fun Animal3DViewport(
     }
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        if (modelInstance == null) {
-            // Show loading or error if model instance is null
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(color = Color.White)
-                Text("Loading 3D Model...", color = Color.White)
-            }
-        }
-
+        // Transparent SceneView
         SceneView(
             modifier = Modifier.fillMaxSize(),
             engine = engine,
             modelLoader = modelLoader,
-            isOpaque = false // Allow seeing through to the background
+            isOpaque = false
         ) {
             if (modelInstance != null) {
                 ModelNode(
                     modelInstance = modelInstance,
                     scaleToUnits = 1.0f,
-                    position = Position(x = 0.0f, y = 0.0f, z = -3.0f),
+                    position = Position(x = 0.0f, y = 0.0f, z = -3.5f),
                     rotation = Rotation(y = 180f),
                     apply = {
                         wrapper.node = this
@@ -91,16 +87,26 @@ fun Animal3DViewport(
                 )
             }
         }
-    }
-}
 
-@Composable
-private fun Column(
-    modifier: Modifier = Modifier,
-    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
-    content: @Composable () -> Unit
-) {
-    androidx.compose.foundation.layout.Column(modifier, horizontalAlignment = horizontalAlignment) {
-        content()
+        if (modelInstance == null) {
+            // Show loading or error if model instance is null
+            androidx.compose.foundation.layout.Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+            ) {
+                CircularProgressIndicator(color = Color.White)
+                Text(
+                    text = "Loading 3D Model...",
+                    color = Color.White,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Text(
+                    text = "Path: $modelAssetPath",
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 10.sp
+                )
+            }
+        }
     }
 }
